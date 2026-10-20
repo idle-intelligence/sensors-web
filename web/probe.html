@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>sensors-web</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0; padding: 12px 12px 60px; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  h2 { font-size: 13px; margin: 18px 0 6px; padding-bottom: 3px; border-bottom: 1px solid currentColor; opacity: .75; }
+  .sub { opacity: .6; margin: 0 0 8px; word-break: break-all; }
+  .row { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px dotted rgba(128,128,128,.35); }
+  .k { flex: 0 0 40%; opacity: .7; word-break: break-all; }
+  .v { flex: 1 1 60%; word-break: break-all; white-space: pre-wrap; }
+  .ok { color: #197b3a; } .no { color: #a02020; } .warn { color: #a06000; }
+  @media (prefers-color-scheme: dark) { .ok { color:#57d07f } .no { color:#ff7b7b } .warn { color:#ffc861 } }
+  button { font: inherit; padding: 8px 12px; margin: 4px 4px 4px 0; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 6px 12px; background: Canvas; border-top: 1px solid rgba(128,128,128,.5); }
+</style>
+</head>
+<body>
+
+<h1>sensors-web: what reads without a permission prompt</h1>
+<p class="sub" id="ua"></p>
+
+<div>
+  <button id="start">start sensors</button>
+  <button id="report">send report</button>
+  <button id="stream">streaming: on</button>
+</div>
+
+<h2>live</h2><div id="live"></div>
+<h2>static</h2><div id="static"></div>
+
+<div id="bar">posted: <span id="posts">0</span> · last: <span id="last">–</span></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var live = {};      // key -> value shown in the live table
+  var stat = {};      // key -> value shown in the static table
+  var posts = 0;
+  var streaming = true;
+
+  function esc(s) { return String(s).replace(/[<>&]/g, function (c) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]; }); }
+
+  function render(el, obj) {
+    var html = '';
+    Object.keys(obj).forEach(function (k) {
+      var v = obj[k], cls = '';
+      if (typeof v === 'string') {
+        if (/^(yes|ok|reading)/.test(v)) cls = 'ok';
+        else if (/^(no|error|blocked|denied|unsupported)/i.test(v)) cls = 'no';
+        else if (/^(prompt|idle|granted-but|flag)/i.test(v)) cls = 'warn';
+      }
+      html += '<div class="row"><div class="k">' + esc(k) + '</div><div class="v ' + cls + '">' + esc(v) + '</div></div>';
+    });
+    el.innerHTML = html;
+  }
+
+  var liveEl = document.getElementById('live'), statEl = document.getElementById('static');
+  function setLive(k, v) { live[k] = v; }
+  function setStat(k, v) { stat[k] = v; render(statEl, stat); }
+
+  function post(kind, payload) {
+    posts++;
+    document.getElementById('posts').textContent = posts;
+    document.getElementById('last').textContent = new Date().toLocaleTimeString();
+    try {
+      fetch('/log', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: kind, ua: navigator.userAgent, payload: payload })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function n(x, d) { return (x === null || x === undefined || typeof x !== 'number') ? String(x) : x.toFixed(d === undefined ? 2 : d); }
+
+  // ---------- static capabilities ----------
+
+  function staticProbe() {
+    setStat('secureContext', window.isSecureContext ? 'yes' : 'NO (most sensors blocked)');
+    setStat('origin', location.origin);
+    setStat('hardwareConcurrency', navigator.hardwareConcurrency);
+    setStat('deviceMemory (GB)', 'deviceMemory' in navigator ? navigator.deviceMemory : 'unsupported');
+    setStat('maxTouchPoints', navigator.maxTouchPoints);
+    setStat('platform', navigator.platform);
+    setStat('languages', (navigator.languages || []).join(','));
+    setStat('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
+    setStat('screen', screen.width + 'x' + screen.height + ' avail ' + screen.availWidth + 'x' + screen.availHeight);
+    setStat('colorDepth', screen.colorDepth);
+    setStat('devicePixelRatio', devicePixelRatio);
+    setStat('prefers-color-scheme', matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    setStat('prefers-reduced-motion', matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduce' : 'no-preference');
+    setStat('pointer:coarse', matchMedia('(pointer: coarse)').matches);
+    setStat('any-hover', matchMedia('(any-hover: hover)').matches);
+
+    // WebGL renderer string - GPU model, no prompt
+    try {
+      var c = document.createElement('canvas');
+      var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+      if (gl) {
+        var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        setStat('webgl vendor', dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR));
+        setStat('webgl renderer', dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+      } else { setStat('webgl', 'unsupported'); }
+    } catch (e) { setStat('webgl', 'error ' + e.message); }
+    setStat('webgpu', 'gpu' in navigator ? 'yes' : 'unsupported');
+
+    // Battery - Chrome/Android yes, Firefox no
+    if (navigator.getBattery) {
+      navigator.getBattery().then(function (b) {
+        function upd() {
+          setLive('battery', 'level ' + Math.round(b.level * 100) + '% charging ' + b.charging +
+            ' chargingTime ' + b.chargingTime + ' dischargingTime ' + b.dischargingTime);
+        }
+        upd();
+        ['levelchange', 'chargingchange', 'chargingtimechange', 'dischargingtimechange'].forEach(function (ev) {
+          b.addEventListener(ev, upd);
+        });
+        setStat('BatteryManager', 'yes');
+      }, function (e) { setStat('BatteryManager', 'error ' + e.name); });
+    } else { setStat('BatteryManager', 'unsupported'); }
+
+    // Network Information
+    var conn = navigator.connection || navigator.mozConnection;
+    if (conn) {
+      function updc() {
+        setLive('network', 'type ' + conn.effectiveType + ' downlink ' + conn.downlink + 'Mb rtt ' + conn.rtt + 'ms saveData ' + conn.saveData);
+      }
+      updc(); conn.addEventListener('change', updc);
+      setStat('NetworkInformation', 'yes');
+    } else { setStat('NetworkInformation', 'unsupported'); }
+
+    // Media devices - count/kind visible without permission, labels are not
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices().then(function (ds) {
+        var kinds = {};
+        ds.forEach(function (d) { kinds[d.kind] = (kinds[d.kind] || 0) + 1; });
+        setStat('mediaDevices count', JSON.stringify(kinds));
+        setStat('mediaDevices labels', ds.some(function (d) { return d.label; }) ? 'visible (already granted)' : 'hidden (needs permission)');
+      }, function (e) { setStat('mediaDevices', 'error ' + e.name); });
+    } else { setStat('mediaDevices', 'unsupported'); }
+
+    // Storage quota
+    if (navigator.storage && navigator.storage.estimate) {
+      navigator.storage.estimate().then(function (e) {
+        setStat('storage quota', Math.round(e.quota / 1048576) + ' MiB, used ' + Math.round(e.usage / 1048576) + ' MiB');
+      });
+    } else { setStat('storage.estimate', 'unsupported'); }
+
+    // User-Agent Client Hints, high entropy - no prompt in Chrome
+    if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+      navigator.userAgentData.getHighEntropyValues(['architecture', 'model', 'platformVersion', 'fullVersionList', 'bitness'])
+        .then(function (v) { setStat('UA-CH high entropy', JSON.stringify(v)); },
+              function (e) { setStat('UA-CH high entropy', 'error ' + e.name); });
+    } else { setStat('UA-CH', 'unsupported'); }
+
+    setStat('memory (perf)', performance.memory ? JSON.stringify({ used: performance.memory.usedJSHeapSize, limit: performance.memory.jsHeapSizeLimit }) : 'unsupported');
+    setStat('vibrate', 'vibrate' in navigator ? 'yes (actuator, no prompt)' : 'unsupported');
+    setStat('getGamepads', navigator.getGamepads ? 'yes' : 'unsupported');
+    setStat('DeviceOrientationEvent', 'DeviceOrientationEvent' in window ? 'yes' : 'unsupported');
+    setStat('DeviceMotionEvent', 'DeviceMotionEvent' in window ? 'yes' : 'unsupported');
+    setStat('iOS requestPermission gate', (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') ? 'yes (needs gesture)' : 'no (Android: free)');
+
+    ['Accelerometer', 'LinearAccelerationSensor', 'GravitySensor', 'Gyroscope', 'Magnetometer',
+     'AbsoluteOrientationSensor', 'RelativeOrientationSensor', 'AmbientLightSensor'].forEach(function (name) {
+      setStat('ctor ' + name, name in window ? 'yes' : 'unsupported');
+    });
+
+    // Permissions API - what the browser says before we ask for anything
+    if (navigator.permissions && navigator.permissions.query) {
+      ['accelerometer', 'gyroscope', 'magnetometer', 'ambient-light-sensor', 'geolocation',
+       'camera', 'microphone', 'notifications'].forEach(function (nm) {
+        navigator.permissions.query({ name: nm }).then(
+          function (p) { setStat('perm ' + nm, p.state); },
+          function (e) { setStat('perm ' + nm, 'unqueryable (' + e.name + ')'); });
+      });
+    } else { setStat('Permissions API', 'unsupported'); }
+  }
+
+  // ---------- generic sensor API ----------
+
+  function startGeneric(name, opts, fmt) {
+    if (!(name in window)) { setLive(name, 'unsupported (no constructor)'); return; }
+    try {
+      var s = new window[name](opts);
+      s.addEventListener('reading', function () { setLive(name, fmt(s)); });
+      s.addEventListener('error', function (e) {
+        setLive(name, 'error ' + (e.error ? e.error.name + ': ' + e.error.message : 'unknown'));
+      });
+      s.start();
+      setLive(name, 'started, waiting for reading…');
+    } catch (e) {
+      setLive(name, 'construct failed ' + e.name + ': ' + e.message);
+    }
+  }
+
+  function xyz(s) { return 'x ' + n(s.x, 3) + '  y ' + n(s.y, 3) + '  z ' + n(s.z, 3) + '  @' + n(s.timestamp, 0); }
+
+  function startSensors() {
+    startGeneric('Accelerometer', { frequency: 10 }, xyz);
+    startGeneric('LinearAccelerationSensor', { frequency: 10 }, xyz);
+    startGeneric('GravitySensor', { frequency: 10 }, xyz);
+    startGeneric('Gyroscope', { frequency: 10 }, xyz);
+    startGeneric('Magnetometer', { frequency: 10 }, xyz);
+    startGeneric('AbsoluteOrientationSensor', { frequency: 10 }, function (s) { return 'quat [' + s.quaternion.map(function (q) { return n(q, 3); }).join(', ') + ']'; });
+    startGeneric('RelativeOrientationSensor', { frequency: 10 }, function (s) { return 'quat [' + s.quaternion.map(function (q) { return n(q, 3); }).join(', ') + ']'; });
+    startGeneric('AmbientLightSensor', { frequency: 2 }, function (s) { return s.illuminance + ' lux'; });
+
+    // DOM events - the cross-browser path (Firefox Android supports these, not Generic Sensor)
+    window.addEventListener('deviceorientation', function (e) {
+      setLive('deviceorientation', 'alpha ' + n(e.alpha) + '  beta ' + n(e.beta) + '  gamma ' + n(e.gamma) + '  absolute ' + e.absolute +
+        (e.webkitCompassHeading !== undefined ? '  compass ' + n(e.webkitCompassHeading) : ''));
+    });
+    window.addEventListener('deviceorientationabsolute', function (e) {
+      setLive('deviceorientationabsolute', 'alpha ' + n(e.alpha) + '  beta ' + n(e.beta) + '  gamma ' + n(e.gamma));
+    });
+    window.addEventListener('devicemotion', function (e) {
+      var a = e.acceleration || {}, g = e.accelerationIncludingGravity || {}, r = e.rotationRate || {};
+      setLive('devicemotion accel', 'x ' + n(a.x, 3) + ' y ' + n(a.y, 3) + ' z ' + n(a.z, 3));
+      setLive('devicemotion accel+g', 'x ' + n(g.x, 3) + ' y ' + n(g.y, 3) + ' z ' + n(g.z, 3));
+      setLive('devicemotion rotation', 'a ' + n(r.alpha) + ' b ' + n(r.beta) + ' g ' + n(r.gamma) + '  interval ' + e.interval + 'ms');
+    });
+
+    if (screen.orientation) {
+      function orient() { setLive('screen.orientation', screen.orientation.type + ' ' + screen.orientation.angle + '°'); }
+      orient(); screen.orientation.addEventListener('change', orient);
+    }
+    function vp() {
+      setLive('viewport', innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio +
+        (window.visualViewport ? ' scale ' + n(visualViewport.scale, 2) : ''));
+    }
+    vp(); addEventListener('resize', vp);
+
+    addEventListener('pointermove', function (e) {
+      setLive('pointer', e.pointerType + ' pressure ' + n(e.pressure, 3) + ' tiltX ' + e.tiltX + ' tiltY ' + e.tiltY +
+        ' w ' + n(e.width, 1) + ' h ' + n(e.height, 1));
+    }, { passive: true });
+    addEventListener('touchstart', function (e) { setLive('touch points', e.touches.length); }, { passive: true });
+
+    setLive('_started', new Date().toISOString());
+  }
+
+  // ---------- boot ----------
+
+  document.getElementById('ua').textContent = navigator.userAgent;
+
+  document.getElementById('start').onclick = function () {
+    // iOS gate; harmless elsewhere
+    if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(function (r) { setStat('iOS motion permission', r); startSensors(); },
+        function (e) { setStat('iOS motion permission', 'error ' + e.name); startSensors(); });
+    } else {
+      startSensors();
+    }
+    this.textContent = 'restart sensors';
+  };
+  document.getElementById('report').onclick = function () {
+    post('report', { static: stat, live: live });
+  };
+  document.getElementById('stream').onclick = function () {
+    streaming = !streaming;
+    this.textContent = 'streaming: ' + (streaming ? 'on' : 'off');
+  };
+
+  staticProbe();
+  startSensors();                        // Android needs no gesture - try immediately
+  setTimeout(function () { post('report', { static: stat, live: live }); }, 2500);
+
+  setInterval(function () { render(liveEl, live); }, 100);
+  setInterval(function () { if (streaming) post('live', live); }, 1000);
+})();
+</script>
+</body>
+</html>

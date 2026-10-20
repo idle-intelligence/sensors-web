@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>sensors-web · idle intelligence</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="stylesheet" href="fonts/fonts.css">
+    <style>
+        :root {
+            --bg: #fdfdfd;
+            --text: #1a1a1a;
+            --muted: #555;
+            --faint: #999;
+            --border: #ddd;
+            --green: #2d7d46;
+            --yellow: #b58900;
+            --red: #c0392b;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+            max-width: 640px;
+            margin: 0 auto;
+            padding: 48px 24px 96px;
+            color: var(--text);
+            background: var(--bg);
+            line-height: 1.5;
+            font-size: 15px;
+        }
+        a { color: var(--text); }
+        a:hover { color: var(--muted); }
+
+        header { margin-bottom: 48px; }
+        .org {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--muted);
+            letter-spacing: 0.02em;
+            margin-bottom: 2px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .org img {
+            width: 16px;
+            height: 16px;
+            border-radius: 2px;
+        }
+        h1 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .tagline {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .tagline a { text-decoration: underline; color: var(--muted); }
+        .tagline a:hover { color: var(--text); }
+        .repo {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+        .repo a { color: var(--faint); text-decoration: none; }
+        .repo a:hover { color: var(--muted); }
+
+        section {
+            border-top: 1px solid var(--border);
+            padding: 24px 0;
+        }
+        section h2 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            color: var(--faint);
+            margin-bottom: 12px;
+        }
+        section h2 .sub {
+            font-weight: 400;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--faint);
+            flex-shrink: 0;
+        }
+        .status-dot.loading { background: var(--yellow); }
+        .status-dot.ready { background: var(--green); }
+        .status-dot.error { background: var(--red); }
+        button {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 8px 16px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text);
+            border-radius: 0;
+            transition: border-color 0.15s;
+        }
+        button:hover:not(:disabled) {
+            border-color: var(--text);
+        }
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        button.primary {
+            background: var(--text);
+            color: var(--bg);
+            border-color: var(--text);
+        }
+        button.primary:hover:not(:disabled) {
+            background: var(--muted);
+            border-color: var(--muted);
+        }
+
+        .rows { display: block; }
+        .row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            column-gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .row:last-child { border-bottom: none; }
+        .name {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .state {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--faint);
+            text-align: right;
+            white-space: nowrap;
+        }
+        .state.live { color: var(--green); }
+        .state.wait { color: var(--yellow); }
+        .state.bad { color: var(--red); }
+        .value:empty { display: none; }
+        .value {
+            grid-column: 1 / -1;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--muted);
+            word-break: break-word;
+        }
+
+        footer {
+            border-top: 1px solid var(--border);
+            padding-top: 24px;
+            margin-top: 24px;
+        }
+        footer a {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--faint);
+            text-decoration: none;
+        }
+        footer a:hover { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <p class="org"><img src="apple-touch-icon.png" alt="II">idle intelligence</p>
+        <h1>sensors-web</h1>
+        <p class="tagline">
+            Every sensor your browser exposes to a web page, with its live value.
+            Nothing leaves this device.
+        </p>
+        <p class="repo">
+            <a href="https://github.com/idle-intelligence/sensors-web">github.com/idle-intelligence/sensors-web</a>
+        </p>
+    </header>
+
+    <section>
+        <h2>status</h2>
+        <div class="status">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Checking...</span>
+        </div>
+        <div style="margin-top:12px">
+            <button id="startBtn" class="primary">Start</button>
+        </div>
+    </section>
+
+    <section>
+        <h2>motion <span class="sub">· generic sensors</span></h2>
+        <div class="rows" id="rowsGeneric"></div>
+    </section>
+
+    <section>
+        <h2>motion <span class="sub">· device events</span></h2>
+        <div class="rows" id="rowsEvents"></div>
+    </section>
+
+    <section>
+        <h2>location <span class="sub">· own permission</span></h2>
+        <div class="rows" id="rowsGeo"></div>
+        <div style="margin-top:12px">
+            <button id="geoBtn">Allow location</button>
+        </div>
+    </section>
+
+    <section>
+        <h2>network</h2>
+        <div class="rows" id="rowsNet"></div>
+    </section>
+
+    <section>
+        <h2>power and load</h2>
+        <div class="rows" id="rowsPower"></div>
+    </section>
+
+    <section>
+        <h2>display</h2>
+        <div class="rows" id="rowsDisplay"></div>
+    </section>
+
+    <section>
+        <h2>device</h2>
+        <div class="rows" id="rowsDevice"></div>
+    </section>
+
+    <section>
+        <h2>input and media</h2>
+        <div class="rows" id="rowsInput"></div>
+    </section>
+
+    <section>
+        <h2>preferences <span class="sub">· media queries</span></h2>
+        <div class="rows" id="rowsPrefs"></div>
+    </section>
+
+    <section>
+        <h2>page and permissions</h2>
+        <div class="rows" id="rowsPage"></div>
+    </section>
+
+    <section>
+        <h2>other apis <span class="sub">· availability only</span></h2>
+        <div class="rows" id="rowsApis"></div>
+    </section>
+
+    <section>
+        <h2>not supported <span class="sub">· in this browser</span></h2>
+        <div class="rows" id="rowsNa"></div>
+    </section>
+
+    <footer>
+        <a href="https://idleintelligence.org">idleintelligence.org</a>
+    </footer>
+
+    <script>
+(function () {
+    'use strict';
+
+    var $ = function (id) { return document.getElementById(id); };
+    var rows = [];
+    var byKey = {};
+    var started = false;
+    var startedAt = 0;
+    var WAIT_MS = 3000;
+
+    function num(x, d) { return (typeof x === 'number' && isFinite(x)) ? x.toFixed(d === undefined ? 2 : d) : '-'; }
+    function xyz(a, b, c, d) { return 'x ' + num(a, d) + '   y ' + num(b, d) + '   z ' + num(c, d); }
+    function allNull() { for (var i = 0; i < arguments.length; i++) if (arguments[i] !== null && arguments[i] !== undefined) return false; return true; }
+    function has(obj, k) { try { return obj != null && k in obj; } catch (e) { return false; } }
+    function bytes(n) {
+        if (typeof n !== 'number') return '-';
+        var u = ['B', 'KiB', 'MiB', 'GiB', 'TiB'], i = 0;
+        while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+        return n.toFixed(i ? 1 : 0) + ' ' + u[i];
+    }
+
+    // Row states: na (not supported), ready (supported, not started), tap (needs the Start tap),
+    // wait (started, no data yet), live (data flowing), denied, nodata (supported but silent).
+    var LABEL = {
+        na: 'not supported', ready: 'supported', tap: 'needs permission', wait: 'waiting',
+        live: 'reading', denied: 'denied', nodata: 'no data', off: 'location off'
+    };
+    var CLASS = { live: 'live', wait: 'wait', tap: 'wait', denied: 'bad', nodata: 'bad', off: 'bad' };
+
+    // A row is either live (needs the Start tap to begin) or info (read as soon as the page loads,
+    // or availability only). Info rows are not counted in the status line.
+    function row(container, key, name, state, info) {
+        var el = document.createElement('div');
+        el.className = 'row';
+        el.innerHTML = '<span class="name"></span><span class="state"></span><span class="value"></span>';
+        el.children[0].textContent = name;
+        $(state === 'na' ? 'rowsNa' : container).appendChild(el);
+        var r = { key: key, el: el, stateEl: el.children[1], valueEl: el.children[2], state: state, value: '',
+                  dirty: true, info: !!info, since: 0, patient: false };
+        rows.push(r);
+        byKey[key] = r;
+    }
+
+    function set(key, state, value) {
+        var r = byKey[key];
+        if (r.state !== state) {
+            r.state = state;
+            r.dirty = true;
+            if (state === 'wait') r.since = performance.now();
+        }
+        if (value !== undefined && r.value !== value) { r.value = value; r.dirty = true; }
+    }
+
+    function info(container, key, name, supported) { row(container, key, name, supported ? 'ready' : 'na', true); }
+    function show(key, value) { set(key, 'live', value); }
+
+    var needsGesture =
+        !!(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') ||
+        !!(window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function');
+
+    // ---------- rows ----------
+
+    function quat(s) { return 'q ' + Array.prototype.map.call(s.quaternion || [], function (q) { return num(q, 3); }).join('   '); }
+    var GENERIC = [
+        ['Accelerometer', 'Accelerometer', function (s) { return xyz(s.x, s.y, s.z) + '   m/s2'; }],
+        ['LinearAccelerationSensor', 'Linear acceleration', function (s) { return xyz(s.x, s.y, s.z) + '   m/s2'; }],
+        ['GravitySensor', 'Gravity', function (s) { return xyz(s.x, s.y, s.z) + '   m/s2'; }],
+        ['Gyroscope', 'Gyroscope', function (s) { return xyz(s.x, s.y, s.z, 3) + '   rad/s'; }],
+        ['Magnetometer', 'Magnetometer', function (s) { return xyz(s.x, s.y, s.z, 1) + '   uT'; }],
+        ['AbsoluteOrientationSensor', 'Absolute orientation', quat],
+        ['RelativeOrientationSensor', 'Relative orientation', quat],
+        ['AmbientLightSensor', 'Ambient light', function (s) { return num(s.illuminance, 0) + ' lux'; }]
+    ];
+    GENERIC.forEach(function (g) { row('rowsGeneric', g[0], g[1], g[0] in window ? 'ready' : 'na'); });
+
+    var hasOrient = 'DeviceOrientationEvent' in window;
+    var hasMotion = 'DeviceMotionEvent' in window;
+    var gate = needsGesture ? 'tap' : 'ready';
+    row('rowsEvents', 'orientation', 'Orientation', hasOrient ? gate : 'na');
+    row('rowsEvents', 'compass', 'Compass heading',
+        hasOrient && ('ondeviceorientationabsolute' in window || needsGesture) ? gate : 'na');
+    row('rowsEvents', 'accel', 'Acceleration', hasMotion ? gate : 'na');
+    row('rowsEvents', 'accelg', 'Acceleration with gravity', hasMotion ? gate : 'na');
+    row('rowsEvents', 'rotation', 'Rotation rate', hasMotion ? gate : 'na');
+    row('rowsEvents', 'pressure', 'Compute pressure', 'PressureObserver' in window ? 'ready' : 'na');
+
+    // Location: watchPosition with its own permission.
+    var hasGeo = 'geolocation' in navigator;
+    var GEO = [
+        ['geo_lat', 'Latitude'], ['geo_lon', 'Longitude'], ['geo_acc', 'Accuracy'], ['geo_alt', 'Altitude'],
+        ['geo_altacc', 'Altitude accuracy'], ['geo_head', 'Heading'], ['geo_speed', 'Speed'],
+        ['geo_age', 'Fix age'], ['geo_rate', 'Update rate']
+    ];
+    GEO.forEach(function (g) { row('rowsGeo', g[0], g[1], hasGeo ? 'ready' : 'na'); byKey[g[0]].patient = true; });
+
+    // Network Information, one row per field the browser exposes.
+    var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    var NET = [
+        ['net_type', 'Connection type', 'type', function (c) { return String(c.type); }],
+        ['net_eff', 'Effective type', 'effectiveType', function (c) { return String(c.effectiveType); }],
+        ['net_down', 'Downlink', 'downlink', function (c) { return c.downlink + ' Mb/s'; }],
+        ['net_downmax', 'Downlink max', 'downlinkMax', function (c) { return c.downlinkMax + ' Mb/s'; }],
+        ['net_rtt', 'Round-trip time', 'rtt', function (c) { return c.rtt + ' ms'; }],
+        ['net_save', 'Save data', 'saveData', function (c) { return c.saveData ? 'on' : 'off'; }]
+    ];
+    info('rowsNet', 'online', 'Online', 'onLine' in navigator);
+    NET.forEach(function (n) { row('rowsNet', n[0], n[1], has(conn, n[2]) ? 'ready' : 'na'); });
+
+    // Battery Status, every field.
+    var BAT = [
+        ['bat_level', 'Battery level'], ['bat_charging', 'Charging'],
+        ['bat_ctime', 'Time to full'], ['bat_dtime', 'Time to empty']
+    ];
+    BAT.forEach(function (b) { row('rowsPower', b[0], b[1], navigator.getBattery ? 'ready' : 'na'); });
+    info('rowsPower', 'heap', 'JS heap', has(performance, 'memory'));
+    info('rowsPower', 'cores', 'Logical cores', 'hardwareConcurrency' in navigator);
+    info('rowsPower', 'devmem', 'Device memory', 'deviceMemory' in navigator);
+    info('rowsPower', 'storage', 'Storage', !!(navigator.storage && navigator.storage.estimate));
+
+    // Display.
+    info('rowsDisplay', 'scr', 'Screen', true);
+    info('rowsDisplay', 'win', 'Window', true);
+    info('rowsDisplay', 'dpr', 'Device pixel ratio', true);
+    info('rowsDisplay', 'depth', 'Colour depth', true);
+    info('rowsDisplay', 'vv', 'Visual viewport', !!window.visualViewport);
+    row('rowsDisplay', 'screen', 'Screen orientation', screen.orientation ? 'ready' : 'na');
+
+    // Device.
+    info('rowsDevice', 'gpu', 'WebGPU adapter', !!navigator.gpu);
+    info('rowsDevice', 'gpulim', 'WebGPU limits', !!navigator.gpu);
+    info('rowsDevice', 'gl', 'WebGL renderer', 'WebGLRenderingContext' in window);
+    info('rowsDevice', 'iso', 'Secure context and isolation', true);
+    info('rowsDevice', 'uach', 'Client hints', !!navigator.userAgentData);
+    info('rowsDevice', 'uachd', 'Client hints (detailed)', !!(navigator.userAgentData && navigator.userAgentData.getHighEntropyValues));
+    info('rowsDevice', 'lang', 'Languages', 'languages' in navigator);
+    info('rowsDevice', 'tz', 'Time zone', typeof Intl !== 'undefined' && !!Intl.DateTimeFormat);
+
+    // Input and media.
+    row('rowsInput', 'touch', 'Touch points', 'ontouchstart' in window ? 'ready' : 'na');
+    row('rowsInput', 'pointer', 'Pointer pressure and tilt', 'PointerEvent' in window ? 'ready' : 'na');
+    info('rowsInput', 'gamepads', 'Gamepads', !!navigator.getGamepads);
+    info('rowsInput', 'media', 'Media devices', !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices));
+    info('rowsInput', 'voices', 'Speech voices', 'speechSynthesis' in window);
+
+    // Preferences, from media queries; a feature the browser does not know evaluates to "not all".
+    var MQ = [
+        ['mq_scheme', 'Colour scheme', 'prefers-color-scheme', ['dark', 'light']],
+        ['mq_motion', 'Reduced motion', 'prefers-reduced-motion', ['reduce', 'no-preference']],
+        ['mq_contrast', 'Contrast', 'prefers-contrast', ['more', 'less', 'custom', 'no-preference']],
+        ['mq_transp', 'Reduced transparency', 'prefers-reduced-transparency', ['reduce', 'no-preference']],
+        ['mq_data', 'Reduced data', 'prefers-reduced-data', ['reduce', 'no-preference']],
+        ['mq_forced', 'Forced colours', 'forced-colors', ['active', 'none']],
+        ['mq_invert', 'Inverted colours', 'inverted-colors', ['inverted', 'none']],
+        ['mq_pointer', 'Primary pointer', 'pointer', ['fine', 'coarse', 'none']],
+        ['mq_apointer', 'Any pointer', 'any-pointer', ['fine', 'coarse', 'none']],
+        ['mq_hover', 'Hover', 'hover', ['hover', 'none']],
+        ['mq_ahover', 'Any hover', 'any-hover', ['hover', 'none']],
+        ['mq_gamut', 'Colour gamut', 'color-gamut', ['srgb', 'p3', 'rec2020']],
+        ['mq_range', 'Dynamic range', 'dynamic-range', ['standard', 'high']],
+        ['mq_display', 'Display mode', 'display-mode', ['browser', 'minimal-ui', 'standalone', 'fullscreen', 'picture-in-picture']],
+        ['mq_script', 'Scripting', 'scripting', ['enabled', 'initial-only', 'none']]
+    ];
+    function mqKnown(f) { return !!window.matchMedia && window.matchMedia('(' + f + ')').media !== 'not all'; }
+    // A feature whose every value is false is treated as unsupported too (some engines parse the name but never match).
+    function mqAny(m) {
+        return m[3].some(function (v) { return window.matchMedia('(' + m[2] + ': ' + v + ')').matches; });
+    }
+    MQ.forEach(function (m) { info('rowsPrefs', m[0], m[1], mqKnown(m[2]) && mqAny(m)); });
+
+    // Page state and permissions.
+    info('rowsPage', 'vis', 'Page visibility', 'visibilityState' in document);
+    info('rowsPage', 'focus', 'Page focus', typeof document.hasFocus === 'function');
+    info('rowsPage', 'perms', 'Permission states', !!(navigator.permissions && navigator.permissions.query));
+
+    // Availability of APIs that need a prompt or a chooser to do anything; only presence is shown.
+    var APIS = [
+        ['Web Bluetooth', has(navigator, 'bluetooth')],
+        ['WebUSB', has(navigator, 'usb')],
+        ['Web Serial', has(navigator, 'serial')],
+        ['WebHID', has(navigator, 'hid')],
+        ['Web NFC', 'NDEFReader' in window],
+        ['Screen wake lock', has(navigator, 'wakeLock')],
+        ['Vibration', typeof navigator.vibrate === 'function'],
+        ['Idle detection', 'IdleDetector' in window],
+        ['Web MIDI', typeof navigator.requestMIDIAccess === 'function'],
+        ['Speech recognition', 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window],
+        ['Screen capture', !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)],
+        ['Multi-screen details', 'getScreenDetails' in window],
+        ['Local fonts', 'queryLocalFonts' in window],
+        ['Contact picker', has(navigator, 'contacts')],
+        ['File system access', 'showOpenFilePicker' in window],
+        ['Clipboard', has(navigator, 'clipboard')],
+        ['Web Share', typeof navigator.share === 'function'],
+        ['Web Authentication', 'PublicKeyCredential' in window],
+        ['Payment Request', 'PaymentRequest' in window],
+        ['Notifications', 'Notification' in window],
+        ['Push', 'PushManager' in window],
+        ['Background sync', 'SyncManager' in window],
+        ['Barcode detection', 'BarcodeDetector' in window],
+        ['EyeDropper', 'EyeDropper' in window],
+        ['WebXR', has(navigator, 'xr')],
+        ['Fullscreen', !!document.fullscreenEnabled],
+        ['Picture in picture', !!document.pictureInPictureEnabled],
+        ['Media session', has(navigator, 'mediaSession')],
+        ['Web Audio', 'AudioContext' in window || 'webkitAudioContext' in window],
+        ['Shared memory', typeof SharedArrayBuffer !== 'undefined']
+    ];
+    APIS.forEach(function (a, i) { info('rowsApis', 'api' + i, a[0], a[1]); });
+
+    // ---------- info readers (run at load) ----------
+
+    function readScreen() {
+        show('scr', screen.width + ' x ' + screen.height + ', available ' + screen.availWidth + ' x ' + screen.availHeight);
+        show('win', 'inner ' + innerWidth + ' x ' + innerHeight + ', outer ' + outerWidth + ' x ' + outerHeight);
+        show('dpr', String(window.devicePixelRatio));
+        show('depth', 'colour ' + screen.colorDepth + ' bit, pixel ' + screen.pixelDepth + ' bit');
+        var vv = window.visualViewport;
+        if (vv) show('vv', num(vv.width, 0) + ' x ' + num(vv.height, 0) + ', scale ' + num(vv.scale, 2) +
+            ', offset ' + num(vv.offsetLeft, 0) + ' / ' + num(vv.offsetTop, 0) + ', page ' + num(vv.pageLeft, 0) + ' / ' + num(vv.pageTop, 0));
+    }
+    readScreen();
+    addEventListener('resize', readScreen);
+    if (window.visualViewport) {
+        visualViewport.addEventListener('resize', readScreen);
+        visualViewport.addEventListener('scroll', readScreen);
+    }
+
+    function readMemory() {
+        if (has(performance, 'memory')) show('heap', bytes(performance.memory.usedJSHeapSize) + ' used, limit ' + bytes(performance.memory.jsHeapSizeLimit));
+    }
+    readMemory();
+    if ('hardwareConcurrency' in navigator) show('cores', String(navigator.hardwareConcurrency));
+    if ('deviceMemory' in navigator) show('devmem', navigator.deviceMemory + ' GB (rounded)');
+    if (byKey.storage.state !== 'na') {
+        navigator.storage.estimate().then(function (e) {
+            show('storage', bytes(e.usage) + ' used of ' + bytes(e.quota));
+        }, function () { set('storage', 'nodata'); });
+    }
+
+    function readOnline() { show('online', navigator.onLine ? 'online' : 'offline'); }
+    if (byKey.online.state !== 'na') { readOnline(); addEventListener('online', readOnline); addEventListener('offline', readOnline); }
+
+    function readPage() {
+        show('vis', document.visibilityState + (document.hidden ? ' (hidden)' : ''));
+        show('focus', document.hasFocus() ? 'focused' : 'not focused');
+    }
+    if (byKey.vis.state !== 'na') {
+        readPage();
+        document.addEventListener('visibilitychange', readPage);
+        addEventListener('focus', readPage);
+        addEventListener('blur', readPage);
+    }
+
+    MQ.forEach(function (m) {
+        if (byKey[m[0]].state === 'na') return;
+        var lists = m[3].map(function (v) { return [v, window.matchMedia('(' + m[2] + ': ' + v + ')')]; });
+        var upd = function () {
+            var on = lists.filter(function (l) { return l[1].matches; }).map(function (l) { return l[0]; });
+            show(m[0], on.join(', '));
+        };
+        upd();
+        lists.forEach(function (l) { l[1].addEventListener('change', upd); });
+    });
+
+    if (byKey.perms.state !== 'na') {
+        var names = ['geolocation', 'notifications', 'push', 'camera', 'microphone', 'accelerometer', 'gyroscope',
+            'magnetometer', 'ambient-light-sensor', 'background-sync', 'clipboard-read', 'clipboard-write', 'midi',
+            'persistent-storage', 'screen-wake-lock', 'local-fonts', 'storage-access', 'window-management',
+            'display-capture', 'idle-detection', 'bluetooth', 'speaker-selection'];
+        Promise.all(names.map(function (n) {
+            return navigator.permissions.query({ name: n }).then(function (p) { return n + ' ' + p.state; }, function () { return null; });
+        })).then(function (rs) {
+            rs = rs.filter(Boolean);
+            if (rs.length) show('perms', rs.join(', ')); else set('perms', 'na');
+        });
+    }
+
+    if (byKey.gl.state !== 'na') {
+        try {
+            var cv = document.createElement('canvas');
+            var gl = cv.getContext('webgl2') || cv.getContext('webgl');
+            if (gl) {
+                var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+                show('gl', (dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) + ', ' + gl.getParameter(gl.VERSION));
+            } else set('gl', 'na');
+        } catch (e) { set('gl', 'na'); }
+    }
+
+    if (navigator.gpu) {
+        navigator.gpu.requestAdapter().then(function (a) {
+            if (!a) { set('gpu', 'na'); set('gpulim', 'na'); return; }
+            var ai = a.info || {};
+            var parts = [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean);
+            show('gpu', (parts.join(', ') || 'adapter present') + ', ' + a.features.size + ' features');
+            var L = a.limits, keys = ['maxTextureDimension2D', 'maxBufferSize', 'maxStorageBufferBindingSize',
+                'maxComputeWorkgroupStorageSize', 'maxComputeInvocationsPerWorkgroup', 'maxComputeWorkgroupSizeX',
+                'maxBindGroups', 'maxStorageBuffersPerShaderStage'];
+            show('gpulim', keys.filter(function (k) { return L[k] !== undefined; }).map(function (k) { return k + ' ' + L[k]; }).join(', '));
+        }, function () { set('gpu', 'na'); set('gpulim', 'na'); });
+    }
+
+    show('iso', (window.isSecureContext ? 'secure context' : 'insecure context') + ', ' +
+        (window.crossOriginIsolated ? 'cross-origin isolated' : 'not cross-origin isolated'));
+
+    if (byKey.uach.state !== 'na') {
+        var u = navigator.userAgentData;
+        show('uach', u.brands.map(function (b) { return b.brand + ' ' + b.version; }).join(', ') + ', platform ' + (u.platform || '-') + ', mobile ' + u.mobile);
+        if (byKey.uachd.state !== 'na') {
+            u.getHighEntropyValues(['architecture', 'bitness', 'model', 'platformVersion', 'fullVersionList', 'wow64']).then(function (h) {
+                var bits = [];
+                ['architecture', 'bitness', 'model', 'platformVersion'].forEach(function (k) { if (h[k]) bits.push(k + ' ' + h[k]); });
+                show('uachd', bits.join(', ') || 'empty');
+            }, function () { set('uachd', 'nodata'); });
+        }
+    }
+
+    if (byKey.lang.state !== 'na') show('lang', (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]).join(', '));
+    if (byKey.tz.state !== 'na') {
+        try {
+            var tzn = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            show('tz', (tzn || '-') + ', offset ' + (-new Date().getTimezoneOffset() / 60) + ' h');
+        } catch (e) { set('tz', 'nodata'); }
+    }
+
+    function readGamepads() {
+        var gs = Array.prototype.filter.call(navigator.getGamepads() || [], Boolean);
+        show('gamepads', gs.length ? gs.map(function (g) { return g.id + ' (' + g.buttons.length + ' buttons, ' + g.axes.length + ' axes)'; }).join('; ')
+            : 'none connected');
+    }
+    if (byKey.gamepads.state !== 'na') {
+        readGamepads();
+        addEventListener('gamepadconnected', readGamepads);
+        addEventListener('gamepaddisconnected', readGamepads);
+    }
+
+    function readMedia() {
+        navigator.mediaDevices.enumerateDevices().then(function (ds) {
+            var c = { videoinput: 0, audioinput: 0, audiooutput: 0 };
+            ds.forEach(function (d) { if (d.kind in c) c[d.kind]++; });
+            show('media', c.videoinput + ' camera, ' + c.audioinput + ' microphone, ' + c.audiooutput + ' speaker');
+        }, function () { set('media', 'nodata'); });
+    }
+    if (byKey.media.state !== 'na') {
+        readMedia();
+        navigator.mediaDevices.addEventListener('devicechange', readMedia);
+    }
+
+    if (byKey.voices.state !== 'na') {
+        var readVoices = function () { show('voices', speechSynthesis.getVoices().length + ' voices'); };
+        readVoices();
+        speechSynthesis.addEventListener('voiceschanged', readVoices);
+    }
+
+    // ---------- live readers (run at Start) ----------
+
+    function startGeneric(g) {
+        var name = g[0];
+        if (!(name in window)) return;
+        set(name, 'wait');
+        var s;
+        try {
+            s = new window[name]({ frequency: 10 });
+        } catch (e) {
+            set(name, e.name === 'SecurityError' || e.name === 'NotAllowedError' ? 'denied' : 'nodata');
+            return;
+        }
+        s.addEventListener('reading', function () { set(name, 'live', g[2](s)); });
+        s.addEventListener('error', function (e) {
+            var n = e.error && e.error.name;
+            set(name, n === 'NotAllowedError' || n === 'SecurityError' ? 'denied' : 'nodata');
+        });
+        try { s.start(); } catch (e) { set(name, 'nodata'); }
+    }
+
+    function startEvents() {
+        if (hasOrient) {
+            ['orientation', 'compass'].forEach(function (k) { if (byKey[k].state !== 'na') set(k, 'wait'); });
+            addEventListener('deviceorientation', function (e) {
+                if (allNull(e.alpha, e.beta, e.gamma)) return;
+                set('orientation', 'live', 'alpha ' + num(e.alpha, 1) + '   beta ' + num(e.beta, 1) + '   gamma ' + num(e.gamma, 1));
+                if (typeof e.webkitCompassHeading === 'number') set('compass', 'live', num(e.webkitCompassHeading, 1) + ' deg from north');
+            });
+            addEventListener('deviceorientationabsolute', function (e) {
+                if (allNull(e.alpha)) return;
+                set('compass', 'live', num(e.alpha, 1) + ' deg');
+            });
+        }
+        if (hasMotion) {
+            ['accel', 'accelg', 'rotation'].forEach(function (k) { set(k, 'wait'); });
+            addEventListener('devicemotion', function (e) {
+                var a = e.acceleration, g = e.accelerationIncludingGravity, r = e.rotationRate;
+                if (a && !allNull(a.x, a.y, a.z)) set('accel', 'live', xyz(a.x, a.y, a.z) + '   m/s2');
+                if (g && !allNull(g.x, g.y, g.z)) set('accelg', 'live', xyz(g.x, g.y, g.z) + '   m/s2');
+                if (r && !allNull(r.alpha, r.beta, r.gamma)) {
+                    set('rotation', 'live', 'alpha ' + num(r.alpha, 1) + '   beta ' + num(r.beta, 1) + '   gamma ' + num(r.gamma, 1) + '   deg/s');
+                }
+            });
+        }
+    }
+
+    function denyEvents() {
+        ['orientation', 'compass', 'accel', 'accelg', 'rotation'].forEach(function (k) {
+            if (byKey[k].state !== 'na') set(k, 'denied', '');
+        });
+    }
+
+    var geoStarted = false, lastFix = null, fixTimes = [];
+    function startGeo() {
+        if (!hasGeo || geoStarted) return;
+        geoStarted = true;
+        GEO.forEach(function (g) { set(g[0], 'wait'); });
+        navigator.geolocation.watchPosition(function (p) {
+            var c = p.coords, now = performance.now();
+            lastFix = p;
+            fixTimes.push(now);
+            if (fixTimes.length > 10) fixTimes.shift();
+            var field = function (key, v, text) { if (typeof v === 'number' && isFinite(v)) set(key, 'live', text); else set(key, 'nodata', ''); };
+            field('geo_lat', c.latitude, num(c.latitude, 6) + ' deg');
+            field('geo_lon', c.longitude, num(c.longitude, 6) + ' deg');
+            field('geo_acc', c.accuracy, num(c.accuracy, 1) + ' m');
+            field('geo_alt', c.altitude, num(c.altitude, 1) + ' m');
+            field('geo_altacc', c.altitudeAccuracy, num(c.altitudeAccuracy, 1) + ' m');
+            field('geo_head', c.heading, num(c.heading, 1) + ' deg from north');
+            field('geo_speed', c.speed, num(c.speed, 2) + ' m/s');
+            if (fixTimes.length > 1) {
+                var span = (fixTimes[fixTimes.length - 1] - fixTimes[0]) / 1000;
+                set('geo_rate', 'live', num((fixTimes.length - 1) / span, 2) + ' fixes/s');
+            } else {
+                set('geo_rate', 'wait', 'one fix so far');
+            }
+            readAge();
+        }, function (err) {
+            var s = err.code === 1 ? 'denied' : err.code === 2 ? 'off' : 'nodata';
+            GEO.forEach(function (g) { if (!lastFix) set(g[0], s, ''); });
+            if (err.code === 1) geoStarted = false;
+        }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+    }
+    function readAge() {
+        if (lastFix) set('geo_age', 'live', num(Math.max(0, Date.now() - lastFix.timestamp) / 1000, 1) + ' s');
+    }
+
+    function startNetwork() {
+        if (!conn) return;
+        var upd = function () {
+            NET.forEach(function (n) {
+                if (byKey[n[0]].state !== 'na' && conn[n[2]] !== undefined) set(n[0], 'live', n[3](conn));
+            });
+        };
+        upd();
+        conn.addEventListener('change', upd);
+    }
+
+    function startBattery() {
+        if (!navigator.getBattery) return;
+        BAT.forEach(function (b) { set(b[0], 'wait'); });
+        var secs = function (v) { return v === Infinity ? 'not applicable' : num(v / 60, 1) + ' min'; };
+        navigator.getBattery().then(function (b) {
+            var upd = function () {
+                set('bat_level', 'live', Math.round(b.level * 100) + '%');
+                set('bat_charging', 'live', b.charging ? 'charging' : 'not charging');
+                set('bat_ctime', 'live', secs(b.chargingTime));
+                set('bat_dtime', 'live', secs(b.dischargingTime));
+            };
+            upd();
+            ['levelchange', 'chargingchange', 'chargingtimechange', 'dischargingtimechange'].forEach(function (ev) { b.addEventListener(ev, upd); });
+        }, function () { BAT.forEach(function (b) { set(b[0], 'denied'); }); });
+    }
+
+    function startPressure() {
+        if (!('PressureObserver' in window)) return;
+        set('pressure', 'wait');
+        try {
+            var po = new PressureObserver(function (recs) {
+                var r = recs[recs.length - 1];
+                set('pressure', 'live', 'cpu ' + r.state);
+            });
+            po.observe('cpu', { sampleInterval: 1000 }).catch(function () { set('pressure', 'nodata'); });
+        } catch (e) { set('pressure', 'nodata'); }
+    }
+
+    function startDevice() {
+        startNetwork();
+        startBattery();
+        startPressure();
+        if (screen.orientation) {
+            var o = function () { set('screen', 'live', screen.orientation.type + ', ' + screen.orientation.angle + ' deg'); };
+            o();
+            screen.orientation.addEventListener('change', o);
+        }
+        if ('ontouchstart' in window) {
+            set('touch', 'wait', 'touch the screen');
+            var t = function (e) { set('touch', 'live', e.touches.length + (e.touches.length === 1 ? ' point' : ' points')); };
+            addEventListener('touchstart', t, { passive: true });
+            addEventListener('touchend', t, { passive: true });
+        }
+        if ('PointerEvent' in window) {
+            set('pointer', 'wait', 'touch or move the pointer');
+            addEventListener('pointermove', function (e) {
+                set('pointer', 'live', e.pointerType + ', pressure ' + num(e.pressure, 2) + ', tilt ' + e.tiltX + ' / ' + e.tiltY);
+            }, { passive: true });
+        }
+    }
+
+    // ---------- start ----------
+
+    function requestMotionAccess() {
+        var reqs = [];
+        if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') reqs.push(DeviceMotionEvent.requestPermission());
+        if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') reqs.push(DeviceOrientationEvent.requestPermission());
+        return Promise.all(reqs.map(function (p) { return p.catch(function () { return 'denied'; }); }))
+            .then(function (rs) { return rs.every(function (r) { return r === 'granted'; }); });
+    }
+
+    $('startBtn').onclick = function () {
+        if (started) return;
+        started = true;
+        startedAt = performance.now();
+        this.disabled = true;
+        // The permission requests are issued synchronously inside the tap.
+        var access = needsGesture ? requestMotionAccess() : Promise.resolve(true);
+        startGeo();
+        GENERIC.forEach(startGeneric);
+        startDevice();
+        access.then(function (ok) { if (ok) startEvents(); else denyEvents(); });
+    };
+
+    $('geoBtn').onclick = startGeo;
+    if (!hasGeo) $('geoBtn').hidden = true;
+
+    // ---------- render ----------
+
+    var dot = $('statusDot'), text = $('statusText');
+    function setStatus(cls, msg) {
+        dot.className = 'status-dot ' + cls;
+        if (text.textContent !== msg) text.textContent = msg;
+    }
+
+    var rowLists = Array.prototype.slice.call(document.querySelectorAll('.rows'));
+    function tick() {
+        var now = performance.now();
+        var live = 0, usable = 0;
+        rows.forEach(function (r) {
+            var interactive = r.key === 'touch' || r.key === 'pointer';
+            if (r.state === 'wait' && !interactive && !r.patient && r.since && now - r.since > WAIT_MS) {
+                r.state = 'nodata';
+                r.dirty = true;
+            }
+            if (!r.info && r.state !== 'na') usable++;
+            if (!r.info && r.state === 'live') live++;
+            if (r.dirty) {
+                r.dirty = false;
+                if (r.state === 'na' && r.el.parentNode !== $('rowsNa')) $('rowsNa').appendChild(r.el);
+                r.stateEl.textContent = LABEL[r.state];
+                r.stateEl.className = 'state ' + (CLASS[r.state] || '');
+                r.valueEl.textContent = r.state === 'na' || r.state === 'nodata' ? '' : r.value;
+            }
+        });
+        rowLists.forEach(function (l) { l.parentNode.hidden = !l.children.length; });
+        if (!started) {
+            setStatus('ready', usable + ' sensors supported. ' + (needsGesture ? 'Tap Start to allow motion access.' : 'Tap Start to read them.'));
+        } else {
+            setStatus(live ? 'ready' : 'loading', live + ' of ' + usable + ' supported sensors reading');
+        }
+    }
+    tick();
+    setInterval(tick, 100);
+    setInterval(function () { readAge(); readMemory(); }, 1000);
+})();
+    </script>
+</body>
+</html>
