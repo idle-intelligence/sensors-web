@@ -2,6 +2,8 @@
 
 What a web page can read from a device **without ever showing a permission prompt**.
 
+[**Try the demo →**](https://idle-intelligence.github.io/sensors-web/)
+
 `web/index.html` is the demo: one row per thing a page can read, each with its availability and
 a live value, and unsupported rows collected in a last section. Feature detection only, no
 user-agent sniffing. A Start button begins the live readers and asks for the motion permission
