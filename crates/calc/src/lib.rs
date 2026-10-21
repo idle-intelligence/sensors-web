@@ -15,6 +15,8 @@ const POINTS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 #[wasm_bindgen]
 pub struct Calc {
     speed: f64,
+    velocity: [f64; 3],
+    attitude: Option<[f64; 3]>,
     last_motion: Option<f64>,
     still_since: Option<f64>,
     heading: f64,
@@ -28,6 +30,18 @@ impl Default for Calc {
     }
 }
 
+/// Rotates a device-frame vector into the earth frame (x east, y north, z up)
+/// from alpha, beta, gamma in degrees (Z-X'-Y'' rotation order).
+fn to_world(att: [f64; 3], v: [f64; 3]) -> [f64; 3] {
+    let (a, b, g) = (att[0].to_radians(), att[1].to_radians(), att[2].to_radians());
+    let (ca, sa, cb, sb, cg, sg) = (a.cos(), a.sin(), b.cos(), b.sin(), g.cos(), g.sin());
+    [
+        (ca * cg - sa * sb * sg) * v[0] - sa * cb * v[1] + (ca * sg + sa * sb * cg) * v[2],
+        (sa * cg + ca * sb * sg) * v[0] + ca * cb * v[1] + (sa * sg - ca * sb * cg) * v[2],
+        -cb * sg * v[0] + sb * v[1] + cb * cg * v[2],
+    ]
+}
+
 fn wrap(deg: f64) -> f64 {
     deg.rem_euclid(360.0)
 }
@@ -38,6 +52,8 @@ impl Calc {
     pub fn new() -> Calc {
         Calc {
             speed: f64::NAN,
+            velocity: [0.0; 3],
+            attitude: None,
             last_motion: None,
             still_since: None,
             heading: f64::NAN,
@@ -53,18 +69,24 @@ impl Calc {
             let dt = self.last_motion.map_or(0.0, |p| ((t_ms - p) / 1000.0).clamp(0.0, MAX_DT));
             self.last_motion = Some(t_ms);
             let mag = (ax * ax + ay * ay + az * az).sqrt();
-            if self.speed.is_nan() {
-                self.speed = 0.0;
-            }
             if mag < STILL_ACCEL {
                 let since = *self.still_since.get_or_insert(t_ms);
                 if t_ms - since >= STILL_MS {
-                    self.speed = 0.0;
+                    self.velocity = [0.0; 3];
                 }
             } else {
                 self.still_since = None;
-                self.speed += mag * dt;
+                let a = match self.attitude {
+                    Some(att) => to_world(att, [ax, ay, az]),
+                    None => [ax, ay, az],
+                };
+                for (v, a) in self.velocity.iter_mut().zip(a) {
+                    *v += a * dt;
+                }
             }
+            let [vx, vy, vz] = self.velocity;
+            // With an orientation the vertical axis is known and left out; without one the full vector is reported.
+            self.speed = if self.attitude.is_some() { vx.hypot(vy) } else { (vx * vx + vy * vy + vz * vz).sqrt() };
         }
         if !self.compass_seen && rot_z.is_finite() {
             if let Some(p) = self.last_gyro {
@@ -74,6 +96,16 @@ impl Calc {
                 self.heading = 0.0;
             }
             self.last_gyro = Some(t_ms);
+        }
+    }
+
+    /// One deviceorientation reading in degrees; used to express acceleration in the earth frame.
+    pub fn push_attitude(&mut self, alpha: f64, beta: f64, gamma: f64) {
+        if alpha.is_finite() && beta.is_finite() && gamma.is_finite() {
+            if self.attitude.is_none() {
+                self.velocity = [0.0; 3];
+            }
+            self.attitude = Some([alpha, beta, gamma]);
         }
     }
 
@@ -130,6 +162,44 @@ mod tests {
             c.push_motion(i as f64 * 100.0, 2.0, 0.0, 0.0, f64::NAN);
         }
         assert!((c.speed() - 2.0).abs() < 1e-9);
+    }
+
+    fn back_and_forth(c: &mut Calc) {
+        c.push_motion(0.0, 0.0, 0.0, 0.0, f64::NAN);
+        for i in 1..=5 {
+            c.push_motion(i as f64 * 100.0, 2.0, 1.0, 0.5, f64::NAN);
+        }
+        assert!(c.speed() > 1.0);
+        for i in 6..=10 {
+            c.push_motion(i as f64 * 100.0, -2.0, -1.0, -0.5, f64::NAN);
+        }
+    }
+
+    #[test]
+    fn symmetric_shake_returns_to_zero() {
+        let mut c = Calc::new();
+        back_and_forth(&mut c);
+        assert!(c.speed().abs() < 1e-9);
+        let mut c = Calc::new();
+        c.push_attitude(30.0, 20.0, 10.0);
+        back_and_forth(&mut c);
+        assert!(c.speed().abs() < 1e-9);
+    }
+
+    #[test]
+    fn world_frame_horizontal_speed() {
+        // Device flat, alpha 90: device x acceleration points north; speed is the same as unrotated.
+        let mut c = Calc::new();
+        c.push_attitude(90.0, 0.0, 0.0);
+        c.push_motion(0.0, 0.0, 0.0, 0.0, f64::NAN);
+        c.push_motion(500.0, 2.0, 0.0, 0.0, f64::NAN);
+        assert!((c.speed() - 1.0).abs() < 1e-9);
+        // Device standing on its end (beta 90): device y acceleration is vertical, so no horizontal speed.
+        let mut c = Calc::new();
+        c.push_attitude(0.0, 90.0, 0.0);
+        c.push_motion(0.0, 0.0, 0.0, 0.0, f64::NAN);
+        c.push_motion(500.0, 0.0, 2.0, 0.0, f64::NAN);
+        assert!(c.speed().abs() < 1e-9);
     }
 
     #[test]
