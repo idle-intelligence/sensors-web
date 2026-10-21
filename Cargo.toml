@@ -8,3 +8,6 @@ edition = "2021"
 [[bin]]
 name = "serve"
 path = "src/main.rs"
+
+[workspace]
+members = ["crates/calc"]
