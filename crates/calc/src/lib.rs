@@ -33,6 +33,8 @@ pub struct Calc {
     attitude: Option<[f64; 3]>,
     last_motion: Option<f64>,
     window: Vec<(f64, f64, f64)>, // (t_ms, |a|, |w|; NaN when the gyro is missing)
+    still: bool,
+    compass: f64,
     heading: f64,
     compass_seen: bool,
     last_gyro: Option<f64>,
@@ -87,6 +89,8 @@ impl Calc {
             attitude: None,
             last_motion: None,
             window: Vec::new(),
+            still: false,
+            compass: f64::NAN,
             heading: f64::NAN,
             compass_seen: false,
             last_gyro: None,
@@ -120,7 +124,8 @@ impl Calc {
         self.window.push((t, amag, wmag));
         self.window.retain(|s| t - s.0 <= WINDOW_MS);
 
-        if self.is_still() {
+        self.still = self.is_still();
+        if self.still {
             // Zero-velocity update, and learn the bias: the acceleration while still is the sensor's offset.
             self.velocity = [0.0; 3];
             let k = 1.0 - (-dt / BIAS_TAU).exp();
@@ -206,6 +211,7 @@ impl Calc {
         } else {
             return;
         };
+        self.compass = target;
         match (self.compass_seen, self.last_compass) {
             (true, Some(p)) if self.heading.is_finite() => {
                 let dt = ((t_ms - p) / 1000.0).max(0.0);
@@ -226,6 +232,16 @@ impl Calc {
     /// Heading in degrees, 0 to 360, NaN until a compass or gyro reading arrived.
     pub fn heading(&self) -> f64 {
         self.heading
+    }
+
+    /// Whether the last acceleration reading was judged still (the moments the speed is zeroed).
+    pub fn still(&self) -> bool {
+        self.still
+    }
+
+    /// The last raw compass heading in degrees, 0 to 360, NaN until one arrived.
+    pub fn compass(&self) -> f64 {
+        self.compass
     }
 
     /// Compass letter for the heading, empty while unknown.
@@ -400,6 +416,22 @@ mod tests {
         c.push_motion(0.0, N, N, N, 0.0, 0.0, 0.0);
         c.push_motion(500.0, N, N, N, 0.0, 0.0, -20.0);
         assert!((c.heading() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn exposes_still_and_raw_compass() {
+        let mut c = Calc::new();
+        assert!(!c.still() && c.compass().is_nan());
+        c.push_motion(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        feed(&mut c, 0.0, 1.0, [0.0, 0.0, 0.0]);
+        assert!(c.still());
+        feed(&mut c, 1000.0, 0.2, [3.0, 0.0, 0.0]);
+        assert!(!c.still());
+        c.push_orientation(0.0, 725.0, N);
+        assert!((c.compass() - 5.0).abs() < 1e-9);
+        c.push_orientation(50.0, 100.0, N);
+        assert!((c.compass() - 100.0).abs() < 1e-9);
+        assert!(c.heading() < 10.0, "filtered heading lags the raw compass");
     }
 
     #[test]
